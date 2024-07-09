@@ -32,6 +32,7 @@ class Sonic {
 
 
     public faucet = async () => {
+        await this.connection.requestAirdrop(this.keypair.publicKey, 1000000000)
         const faucetApi = axios.create({
             baseURL: `https://odyssey-api.sonic.game/user/check-in/`,
             headers: {
@@ -50,6 +51,11 @@ class Sonic {
         }
     }
     public sendSol = async (fromKeypair: Keypair, toPublicKey: string, amountInsol: number) => {
+
+        if (!fromKeypair.publicKey && !this.connection) {
+            return
+        }
+
         const transaction = new web3.Transaction().add(
             web3.SystemProgram.transfer({
                 fromPubkey: fromKeypair.publicKey,
@@ -58,7 +64,7 @@ class Sonic {
             }))
 
         try {
-            await web3.sendAndConfirmTransaction(
+            web3.sendAndConfirmTransaction(
                 this.connection,
                 transaction,
                 [fromKeypair],
@@ -81,7 +87,6 @@ class Sonic {
         const signature = this.generateSignature(message)
 
         console.log("Get authorize...");
-
 
         const authorizeApi = axios.create({
             baseURL: `https://odyssey-api.sonic.game/auth/sonic/authorize`,
@@ -218,8 +223,19 @@ class Sonic {
     }
 
     public buildCheckInTx = async () => {
-        const hash = await this.checkInTransaction()
-        return web3.Transaction.from(Buffer.from(hash, "base64"))
+        let attempts = 0;
+        while (attempts < 3) { // 尝试3次
+            try {
+                const hash = await this.checkInTransaction();
+                return web3.Transaction.from(Buffer.from(hash, "base64"));
+            } catch (error) {
+                attempts++;
+                if (attempts >= 3) {
+                    throw error;
+                }
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+        }
     }
 
     public checkInHadnle = async (hash: string) => {

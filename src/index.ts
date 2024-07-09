@@ -35,11 +35,15 @@ async function run(key: string, keys: string[], sol: number) {
 
             const checkInTx = await sonic.buildCheckInTx()
 
-            const sendcheckInTx = await sonic.sendTx(connection, checkInTx)
+            if (checkInTx) {
 
-            await sonic.checkInHadnle(sendcheckInTx.txid)
 
-            title = title + " " + "checkIn" + " " + "√"
+                const sendcheckInTx = await sonic.sendTx(connection, checkInTx)
+
+                await sonic.checkInHadnle(sendcheckInTx.txid)
+
+                title = title + " " + "checkIn" + " " + "√"
+            }
         }
 
         if (user.total_transactions < 100) {
@@ -147,6 +151,6 @@ async function ringLottery(key: string, times: number) {
         await run(key, keys, 0.00001)
 
         // 抽奖（私钥，抽奖次数）
-        await ringLottery(key, 100)
+        // await ringLottery(key, 100)
     }
 })()
