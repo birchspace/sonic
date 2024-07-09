@@ -3,12 +3,26 @@ import bs58 from 'bs58'
 import task from 'tasuku'
 import Sonic from "./sonic";
 import web3 from "@solana/web3.js"
+import fetch from "node-fetch"
 
 const connection = new web3.Connection(
     "https://devnet.sonic.game", 'finalized'
 );
 
 const SOL_LAMPORts = 1000000000;
+// 0.6SOL
+const SOL_LAMPORTS_MIN = 600000000;
+
+// clientKey
+const clientKey = "";
+const websiteKey = "0x4AAAAAAAc6HG1RMG_8EHSC";
+const websiteURL = "https://faucet.sonic.game";
+
+// 验证码类型：
+// 这个没有测试过
+// const taskType = "TurnstileTaskProxyless";
+// 这个更稳定 但是更贵
+const taskType = "TurnstileTaskProxyless";
 
 async function run(key: string, keys: string[], sol: number) {
     const sonic = new Sonic(key, connection)
@@ -23,6 +37,11 @@ async function run(key: string, keys: string[], sol: number) {
 
         setTitle(`${sonic.keypair.publicKey.toString()}: balance is ${balance / SOL_LAMPORts} sol`)
 
+        if (balance < SOL_LAMPORTS_MIN && clientKey != "") {
+            setTitle(`${sonic.keypair.publicKey.toString()}: claim 1 sol by faucet`)
+            await claimByFaucet(sonic.keypair.publicKey.toString())
+        }
+
         let title = `${sonic.keypair.publicKey.toString()}`
 
         const user = await sonic.status()
@@ -35,11 +54,15 @@ async function run(key: string, keys: string[], sol: number) {
 
             const checkInTx = await sonic.buildCheckInTx()
 
-            const sendcheckInTx = await sonic.sendTx(connection, checkInTx)
+            if (checkInTx) {
 
-            await sonic.checkInHadnle(sendcheckInTx.txid)
 
-            title = title + " " + "checkIn" + " " + "√"
+                const sendcheckInTx = await sonic.sendTx(connection, checkInTx)
+
+                await sonic.checkInHadnle(sendcheckInTx.txid)
+
+                title = title + " " + "checkIn" + " " + "√"
+            }
         }
 
         if (user.total_transactions < 100) {
@@ -121,6 +144,91 @@ async function ringLottery(key: string, times: number) {
     })
 }
 
+async function claimByFaucet(pubkey: string) {
+    const taskId = await createTask();
+    if (taskId) {
+      const response = await getResponse(taskId);
+      if (response) {
+        // 领水
+        const url = `https://faucet-api.sonic.game/airdrop/${pubkey}/1/${response}`;
+        const faucetRes = await fetch(url, {
+          method: "GET",
+          agent: false,
+          rejectUnauthorized: false,
+        });
+      }
+    }
+  }
+  
+  async function createTask() {
+    try {
+      const url = "https://api.yescaptcha.com/createTask";
+      const data = {
+        clientKey: clientKey,
+        task: {
+          websiteURL: websiteURL,
+          websiteKey: websiteKey,
+          type: taskType,
+        },
+        softID: 33117,
+      };
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(data),
+        agent: false,
+        rejectUnauthorized: false,
+      });
+      const result = await response.json();
+      const taskId = result.taskId;
+      if (taskId) {
+        return taskId;
+      } else {
+        console.log(result);
+      }
+    } catch (error) {
+      console.error(error);
+    }
+  }
+  
+  async function getResponse(taskID) {
+    let times = 0;
+    while (times < 120) {
+      try {
+        const url = "https://api.yescaptcha.com/getTaskResult";
+        const data = {
+          clientKey: clientKey,
+          taskId: taskID,
+        };
+        const response = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(data),
+          agent: false,
+          rejectUnauthorized: false,
+        });
+        const result = await response.json();
+        const solution = result.solution;
+        if (solution) {
+          const response = solution.token;
+          if (response) {
+            return response;
+          }
+        } else {
+        //   console.log(result);
+        }
+      } catch (error) {
+        console.error(error);
+      }
+      times += 3;
+      await new Promise((resolve) => setTimeout(resolve, 3000)); // 等待3秒钟
+    }
+  }
+
 (async function main() {
     let keys: string[] = []
 
@@ -147,6 +255,6 @@ async function ringLottery(key: string, times: number) {
         await run(key, keys, 0.00001)
 
         // 抽奖（私钥，抽奖次数）
-        await ringLottery(key, 100)
+        // await ringLottery(key, 100)
     }
 })()
