@@ -1,0 +1,53 @@
+{
+  "name": "ace-util",
+  "version": "1.0.0",
+  "description": "",
+  "scripts": {
+    "typecheck": "tsc",
+    "start": "tsup && node dist/index.mjs",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Ss",
+  "license": "MIT",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "package.json"
+  ],
+  "exports": "./dist/index.js",
+  "engines": {
+    "node": ">=18.17.0"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.94.0",
+    "@types/node": "^20.14.9",
+    "axios": "^1.7.2",
+    "bs58": "^6.0.0",
+    "https-proxy-agent": "^7.0.2",
+    "node-fetch": "^2.6.11",
+    "tasuku": "^2.0.1",
+    "tweetnacl": "^1.0.3",
+    "tweetnacl-util": "^0.15.1"
+  },
+  "devDependencies": {
+    "@ianvs/prettier-plugin-sort-imports": "^4.1.1",
+    "commander": "^12.0.0",
+    "tsup": "^8.0.2",
+    "typescript": "^5.3.3"
+  },
+  "include": [
+    "./src/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "**/*.spec.ts"
+  ],
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "module": "commonjs",
+    "target": "es6",
+    "strict": true
+  }
+}
