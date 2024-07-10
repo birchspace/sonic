@@ -1,19 +1,31 @@
 import bs58 from "bs58"
+import task from 'tasuku'
 import axios from 'axios';
 import nacl from "tweetnacl";
 import web3 from "@solana/web3.js"
 import TWeetnaclUtil from "tweetnacl-util";
 
 import type { Transaction, Keypair, Connection } from "@solana/web3.js";
+import { getProxy } from "./proxy";
 
+interface UserStatusProps {
+    checked: boolean;
+    accumulative_days: number;
+    total_transactions: number;
+    transactions_1_claimed: boolean;
+    transactions_2_claimed: boolean;
+    transactions_3_claimed: boolean;
+    ring: number;
+    ring_monitor: number;
+}
 
 class Sonic {
     keypair: Keypair;
     authorization: string
     connection: Connection
+    userStatus: UserStatusProps
 
     private key: string
-
 
     constructor(key: string, connection: Connection) {
         this.key = key
@@ -40,14 +52,14 @@ class Sonic {
                 'if-none-match': 'W/"198-HGTHb5LTJMV42a6+NNzdG8NECww"',
                 'priority': 'u=1, i',
                 'User-Agent': 'Apifox/1.0.0 (https://apifox.com)'
-            }
-        });
+            },
+        })
 
         try {
             const response = await faucetApi.get(`transaction`);
             return response.data.data.hash;
         } catch (error) {
-            console.log("checkInTransaction error", error);
+            console.log("faucet error", error.response.data);
         }
     }
     public sendSol = async (fromKeypair: Keypair, toPublicKey: string, amountInsol: number) => {
@@ -64,8 +76,7 @@ class Sonic {
             }))
 
         try {
-            web3.sendAndConfirmTransaction(
-                this.connection,
+            this.connection.sendTransaction(
                 transaction,
                 [fromKeypair],
                 {
@@ -83,32 +94,38 @@ class Sonic {
     }
 
     public init = async () => {
-        const message = await this.challenge()
-        const signature = this.generateSignature(message)
+        const initTask = await task("init...", async ({ setTitle }) => {
 
-        console.log("Get authorize...");
+            setTitle("init:" + "get challenge")
+            const message = await this.challenge()
+            const signature = this.generateSignature(message)
 
-        const authorizeApi = axios.create({
-            baseURL: `https://odyssey-api.sonic.game/auth/sonic/authorize`,
-            headers: {
-                'priority': 'u=1, i',
-                'User-Agent': 'Apifox/1.0.0 (https://apifox.com)',
-                'content-type': 'application/json'
+            setTitle("init:" + "get authorize")
+            const authorizeApi = axios.create({
+                baseURL: `https://odyssey-api.sonic.game/auth/sonic/authorize`,
+                headers: {
+                    'priority': 'u=1, i',
+                    'User-Agent': 'Apifox/1.0.0 (https://apifox.com)',
+                    'content-type': 'application/json'
+                }
+            });
+
+            const data = JSON.stringify({
+                "address": this.keypair.publicKey.toString(),
+                "address_encoded": TWeetnaclUtil.encodeBase64(this.keypair.publicKey.toBytes()),
+                "signature": signature
+            });
+
+            try {
+                const response = await authorizeApi.post(`?wallet=${this.keypair.publicKey.toString()}`, data);
+                this.authorization = response.data.data.token
+                return { authorization: response.data.data.token }
+            } catch (error) {
+                console.log("get authorize error", error.response.data);
             }
-        });
+        })
 
-        const data = JSON.stringify({
-            "address": this.keypair.publicKey.toString(),
-            "address_encoded": TWeetnaclUtil.encodeBase64(this.keypair.publicKey.toBytes()),
-            "signature": signature
-        });
-
-        try {
-            const response = await authorizeApi.post(`?wallet=${this.keypair.publicKey.toString()}`, data);
-            this.authorization = response.data.data.token
-        } catch (error) {
-            console.log("get authorize error", error);
-        }
+        initTask.clear()
     }
 
     public status = async () => {
@@ -130,29 +147,49 @@ class Sonic {
                 'if-none-match': 'W/"60-UycbyinrMpwPxvaprERozGBmb2c"',
                 'priority': 'u=1, i',
                 'User-Agent': 'Apifox/1.0.0 (https://apifox.com)'
-            }
+            },
         });
 
-        try {
-            const response = await statusApi.get(`check-in/status`);
-            const checkInStatus = response.data.data
-            userDeafultStatus.checked = checkInStatus?.checked
-            userDeafultStatus.accumulative_days = checkInStatus?.accumulative_days
-        } catch (error) {
-            console.log("Check in error", error);
-        }
+        const statusTask = await task("getting checked...", async ({ setTitle }) => {
+            try {
+                const response = await statusApi.get(`check-in/status`);
+                const checkInStatus = response.data.data
 
-        try {
-            const response = await statusApi.get(`transactions/state/daily`);
-            const transactionsStatus = response.data.data
-            userDeafultStatus.total_transactions = transactionsStatus?.total_transactions
-            const { stage_1, stage_2, stage_3 } = transactionsStatus?.stage_info
-            userDeafultStatus.transactions_1_claimed = stage_1?.claimed
-            userDeafultStatus.transactions_2_claimed = stage_2?.claimed
-            userDeafultStatus.transactions_3_claimed = stage_3?.claimed
-        } catch (error) {
-            console.log("transactions daily error", error);
-        }
+                if (!checkInStatus) {
+                    setTitle("getting checked fail...")
+                }
+
+                userDeafultStatus.checked = checkInStatus?.checked
+                userDeafultStatus.accumulative_days = checkInStatus?.accumulative_days
+                setTitle("got checked!!!")
+
+            } catch (error) {
+                console.log("Check in error", error.response.data);
+            }
+
+
+            try {
+                setTitle("getting daily...")
+                const response = await statusApi.get(`transactions/state/daily`);
+                const transactionsStatus = response.data.data
+                if (!transactionsStatus) {
+                    setTitle("getting daily fail...")
+                }
+                userDeafultStatus.total_transactions = transactionsStatus?.total_transactions
+                const { stage_1, stage_2, stage_3 } = transactionsStatus?.stage_info
+                userDeafultStatus.transactions_1_claimed = stage_1?.claimed
+                userDeafultStatus.transactions_2_claimed = stage_2?.claimed
+                userDeafultStatus.transactions_3_claimed = stage_3?.claimed
+                setTitle("got daily!!!")
+            } catch (error) {
+                console.log("transactions daily error", error.response.data);
+            }
+
+        })
+
+        this.userStatus = { ...userDeafultStatus }
+
+        statusTask.clear()
 
         return { ...userDeafultStatus }
     }
@@ -169,37 +206,61 @@ class Sonic {
     }
 
     public claim = async () => {
+        const claimTask = await task("start claim...", async ({ setTitle }) => {
 
-        const userStatus = await this.status()
+            const claim = await task("getting userStatus", async () => {
 
-        const claimApi = axios.create({
-            baseURL: `https://odyssey-api.sonic.game/user/transactions/rewards/`,
-            headers: {
-                'authorization': this.authorization,
-                'priority': 'u=1, i',
-                'User-Agent': 'Apifox/1.0.0 (https://apifox.com)',
-                'content-type': 'application/json'
-            }
-        });
 
-        const stagesToClaim = [1, 2, 3].filter(stage => !userStatus[`transactions_${stage}_claimed`]);
+                const claimApi = axios.create({
+                    baseURL: `https://odyssey-api.sonic.game/user/transactions/rewards/`,
+                    headers: {
+                        'authorization': this.authorization,
+                        'priority': 'u=1, i',
+                        'User-Agent': 'Apifox/1.0.0 (https://apifox.com)',
+                        'content-type': 'application/json'
+                    }
+                });
 
-        const claimPromises = stagesToClaim.map(async stage => {
-            const data = JSON.stringify({ "stage": stage });
 
-            try {
-                const response = await claimApi.post('claim', data);
-                return response.data.data.claimed;
-            } catch (error) {
-                console.log("claim error", error);
-            }
-        });
+                if (!this.userStatus.transactions_1_claimed) {
 
-        for (const promise of claimPromises) {
+                    try {
+                        const data = JSON.stringify({ "stage": 1 });
+                        const response = await claimApi.post('claim', data);
+                        return response.data.data.claimed;
+                    } catch (error) {
+                        console.log("claim 1 error", error.response.data);
+                    }
+                }
 
-            await promise;
-            this.sleep(1000)
-        }
+                if (!this.userStatus.transactions_2_claimed) {
+
+                    try {
+                        const data = JSON.stringify({ "stage": 2 });
+                        const response = await claimApi.post('claim', data);
+                        return response.data.data.claimed;
+                    } catch (error) {
+                        console.log("claim 2 error", error.response.data);
+                    }
+                }
+
+                if (!this.userStatus.transactions_3_claimed) {
+
+                    try {
+                        const data = JSON.stringify({ "stage": 3 });
+                        const response = await claimApi.post('claim', data);
+                        return response.data.data.claimed;
+                    } catch (error) {
+                        console.log("claim 3 error", error.response.data);
+                    }
+                }
+            })
+
+            claim.clear()
+            setTitle("claim done")
+        })
+
+        claimTask.clear
     }
 
     public checkInTransaction = async () => {
@@ -218,7 +279,8 @@ class Sonic {
             const response = await checkInTransactionApi.get(`transaction`);
             return response.data.data.hash;
         } catch (error) {
-            console.log("checkInTransaction error", error);
+            if (error.response.data.message === "current account already checked in") { return }
+            console.log("checkInTransaction error", error.response.data);
         }
     }
 
@@ -231,8 +293,10 @@ class Sonic {
             } catch (error) {
                 attempts++;
                 if (attempts >= 3) {
-                    throw error;
+                    console.log("end.");
+                    return
                 }
+            } finally {
                 await new Promise(resolve => setTimeout(resolve, 1000));
             }
         }
@@ -257,7 +321,7 @@ class Sonic {
             const response = await checkInHadnleApi.post(`check-in`, data);
             return response.data;
         } catch (error) {
-            console.log("checkInHadnle error", error);
+            console.log("checkInHadnle error", error.response.data);
         }
     }
 
@@ -276,7 +340,7 @@ class Sonic {
             const response = await lotteryTransactionApi.get(`build-tx`);
             return response.data.data.hash;
         } catch (error) {
-            console.log("lotteryTransaction error", error);
+            console.log("lotteryTransaction error", error.response.data);
         }
     }
 
@@ -305,7 +369,7 @@ class Sonic {
             const { hash, block_number } = response.data.data
             return { hash, block_number }
         } catch (error) {
-            console.log("lotteryDraw error", error);
+            console.log("lotteryDraw error", error.response.data);
         }
     }
 
@@ -326,7 +390,7 @@ class Sonic {
 
             return { is, block_number, rewards, extra_rewards }
         } catch (error) {
-            console.log("isLotteryWinner error", error);
+            console.log("isLotteryWinner error", error.response.data);
         }
     }
 
@@ -443,7 +507,7 @@ class Sonic {
             const response = await challengeApi.get(`?wallet=${this.keypair.publicKey.toString()}`);
             return response.data.data;
         } catch (error) {
-            console.log("challenge error", error);
+            console.log("challenge error", error.response.data);
         }
     }
 
