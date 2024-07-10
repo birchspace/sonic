@@ -4,9 +4,10 @@ import task from 'tasuku'
 import Sonic from "./sonic";
 import web3 from "@solana/web3.js"
 import fetch from "node-fetch"
+import axios from "axios";
 
 const connection = new web3.Connection(
-    "https://devnet.sonic.game", 'finalized'
+  "https://devnet.sonic.game", 'finalized'
 );
 
 const SOL_LAMPORts = 1000000000;
@@ -25,152 +26,193 @@ const websiteURL = "https://faucet.sonic.game";
 const taskType = "TurnstileTaskProxyless";
 
 async function run(key: string, keys: string[], sol: number) {
-    const sonic = new Sonic(key, connection)
+  const sonic = new Sonic(key, connection)
 
-    const give_next = sol * SOL_LAMPORts
+  const give_next = sol * SOL_LAMPORts
 
-    await sonic.init()
 
-    await task(`${sonic.keypair.publicKey.toString()}`, async ({ setTitle }) => {
+  await task(`${sonic.keypair.publicKey.toString()}`, async ({ setTitle }) => {
 
-        const balance = await sonic.getBalance()
+    const data = await sonic.init()
 
-        setTitle(`${sonic.keypair.publicKey.toString()}: balance is ${balance / SOL_LAMPORts} sol`)
+    const balance = await sonic.getBalance()
 
-        if (balance < SOL_LAMPORTS_MIN && clientKey != "") {
-            setTitle(`${sonic.keypair.publicKey.toString()}: claim 1 sol by faucet`)
-            await claimByFaucet(sonic.keypair.publicKey.toString())
+    setTitle(`${sonic.keypair.publicKey.toString()}: balance is ${balance / SOL_LAMPORts} sol`)
+
+    if (balance < SOL_LAMPORTS_MIN && clientKey != "") {
+      setTitle(`${sonic.keypair.publicKey.toString()}: claim 1 sol by faucet`)
+      await claimByFaucet(sonic.keypair.publicKey.toString())
+    }
+
+    let title = `${sonic.keypair.publicKey.toString()}`
+
+    const user = await sonic.status()
+
+    title = title + ":"
+
+    setTitle(title)
+
+    if (!user.checked) {
+
+      const checkInTask = await task("making check in", async ({ setTitle }) => {
+
+        const checkInTx = await sonic.buildCheckInTx()
+
+        if (checkInTx) {
+          setTitle("making check in" + ": get hash successfully")
+
+          const sendcheckInTx = await sonic.sendTx(connection, checkInTx)
+
+          await sonic.checkInHadnle(sendcheckInTx.txid)
+          title = title + " " + "checkIn" + " " + "√"
         }
 
-        let title = `${sonic.keypair.publicKey.toString()}`
+        setTitle("check in done.")
+      })
 
-        const user = await sonic.status()
+      checkInTask.clear()
+    }
 
-        title = title + ":"
+    if (user.total_transactions < 100) {
+      const times = 110 - user.total_transactions
+      const transactionstask = await task(`transactions has been completed 0`, async ({ setTitle }) => {
 
-        setTitle(title)
+        for (let i = 0; i < times; i++) {
+          let receiverKey: string
 
-        if (!user.checked) {
+          do {
+            receiverKey = keys[Math.floor(Math.random() * keys.length)]
+          } while (receiverKey === key);
 
-            const checkInTx = await sonic.buildCheckInTx()
+          const receiverKeypair = web3.Keypair.fromSecretKey(bs58.decode(receiverKey));
 
-            if (checkInTx) {
+          const minAmount = Math.floor(give_next * 1.0);
+          const maxAmount = Math.floor(give_next * 1.1);
+
+          const amountInSol = Math.floor(Math.random() * (maxAmount - minAmount) + minAmount);
 
 
-                const sendcheckInTx = await sonic.sendTx(connection, checkInTx)
+          const nestedTask = await task(`-> ${receiverKeypair.publicKey.toString()}`, async () => {
+            await sonic.sendSol(sonic.keypair, receiverKeypair.publicKey.toString(), amountInSol)
+          })
 
-                await sonic.checkInHadnle(sendcheckInTx.txid)
+          nestedTask.clear()
 
-                title = title + " " + "checkIn" + " " + "√"
-            }
+          setTitle(`transactions has been completed ${i}`)
         }
 
-        if (user.total_transactions < 100) {
-            const times = 110 - user.total_transactions
-            const transactionstask = await task(`transactions has been completed 0`, async ({ setTitle }) => {
+        await sonic.sleep(3000)
 
-                for (let i = 0; i < times; i++) {
-                    let receiverKey: string
+      })
 
-                    do {
-                        receiverKey = keys[Math.floor(Math.random() * keys.length)]
-                    } while (receiverKey === key);
+      transactionstask.clear()
 
-                    const receiverKeypair = web3.Keypair.fromSecretKey(bs58.decode(receiverKey));
+      title = title + " " + "transactions" + " " + "√"
+      setTitle(title)
+    }
 
-                    const minAmount = Math.floor(give_next * 1.0);
-                    const maxAmount = Math.floor(give_next * 1.1);
+    if (!user.transactions_1_claimed || !user.transactions_2_claimed || !user.transactions_3_claimed) {
+      await sonic.claim()
+    }
 
-                    const amountInSol = Math.floor(Math.random() * (maxAmount - minAmount) + minAmount);
-
-
-                    const nestedTask = await task(`-> ${receiverKeypair.publicKey.toString()}`, async () => {
-                        await sonic.sendSol(sonic.keypair, receiverKeypair.publicKey.toString(), amountInSol)
-                    })
-
-                    nestedTask.clear()
-
-                    setTitle(`transactions has been completed ${i}`)
-                }
-
-                await sonic.sleep(3000)
-                await sonic.claim()
-            })
-
-            transactionstask.clear()
-
-            title = title + " " + "transactions" + " " + "√"
-            setTitle(title)
-        }
-
-        title = title + " " + "Done"
-        setTitle(title)
-    })
+    title = title + " " + "Done"
+    setTitle(title)
+  })
 }
 
 async function ringLottery(key: string, times: number) {
-    const sonic = new Sonic(key, connection)
+  const sonic = new Sonic(key, connection)
 
-    await sonic.init()
+  await sonic.init()
 
-    await task(`${sonic.keypair.publicKey.toString()} scratch lottery tickets`, async ({ setTitle }) => {
+  await task(`${sonic.keypair.publicKey.toString()} scratch lottery tickets`, async ({ setTitle }) => {
 
-        let title = `${sonic.keypair.publicKey.toString()}`
-        let win = 0
-        let lose = 0
+    let title = `${sonic.keypair.publicKey.toString()}`
+    let win = 0
+    let lose = 0
 
-        for (const time of Array.from({ length: times })) {
+    for (const time of Array.from({ length: times })) {
 
-            const lotteryTx = await sonic.buildLotteryTx()
+      const lotteryTx = await sonic.buildLotteryTx()
 
-            const sendLotteryTx = await sonic.sendTx(connection, lotteryTx)
+      const sendLotteryTx = await sonic.sendTx(connection, lotteryTx)
 
-            const draw = await sonic.lotteryDraw(sendLotteryTx.txid)
+      const draw = await sonic.lotteryDraw(sendLotteryTx.txid)
 
-            const res = await sonic.isLotteryWinner(draw?.block_number)
+      const res = await sonic.isLotteryWinner(draw?.block_number)
 
-            if (res?.is === "true") {
-                win += res.rewards
-            }
+      if (res?.is === "true") {
+        win += res.rewards
+      }
 
-            if (res?.is === "false") {
-                lose += 1
-            }
+      if (res?.is === "false") {
+        lose += 1
+      }
 
-            title = `${sonic.keypair.publicKey.toString()} lottery scratching: win ${win} lose ${lose}`;
+      title = `${sonic.keypair.publicKey.toString()} lottery scratching: win ${win} lose ${lose}`;
 
-            setTitle(title)
-        }
-    })
+      setTitle(title)
+    }
+  })
 }
 
 async function claimByFaucet(pubkey: string) {
-    const taskId = await createTask();
-    if (taskId) {
-      const response = await getResponse(taskId);
-      if (response) {
-        // 领水
-        const url = `https://faucet-api.sonic.game/airdrop/${pubkey}/1/${response}`;
-        const faucetRes = await fetch(url, {
-          method: "GET",
-          agent: false,
-          rejectUnauthorized: false,
-        });
-      }
+  const taskId = await createTask();
+  if (taskId) {
+    const response = await getResponse(taskId);
+    if (response) {
+      // 领水
+      const url = `https://faucet-api.sonic.game/airdrop/${pubkey}/1/${response}`;
+      const faucetRes = await fetch(url, {
+        method: "GET",
+        agent: false,
+        rejectUnauthorized: false,
+      });
     }
   }
-  
-  async function createTask() {
+}
+
+async function createTask() {
+  try {
+    const url = "https://api.yescaptcha.com/createTask";
+    const data = {
+      clientKey: clientKey,
+      task: {
+        websiteURL: websiteURL,
+        websiteKey: websiteKey,
+        type: taskType,
+      },
+      softID: 33117,
+    };
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(data),
+      agent: false,
+      rejectUnauthorized: false,
+    });
+    const result = await response.json();
+    const taskId = result.taskId;
+    if (taskId) {
+      return taskId;
+    } else {
+      console.log(result);
+    }
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+async function getResponse(taskID) {
+  let times = 0;
+  while (times < 120) {
     try {
-      const url = "https://api.yescaptcha.com/createTask";
+      const url = "https://api.yescaptcha.com/getTaskResult";
       const data = {
         clientKey: clientKey,
-        task: {
-          websiteURL: websiteURL,
-          websiteKey: websiteKey,
-          type: taskType,
-        },
-        softID: 33117,
+        taskId: taskID,
       };
       const response = await fetch(url, {
         method: "POST",
@@ -182,79 +224,50 @@ async function claimByFaucet(pubkey: string) {
         rejectUnauthorized: false,
       });
       const result = await response.json();
-      const taskId = result.taskId;
-      if (taskId) {
-        return taskId;
+      const solution = result.solution;
+      if (solution) {
+        const response = solution.token;
+        if (response) {
+          return response;
+        }
       } else {
-        console.log(result);
+        //   console.log(result);
       }
     } catch (error) {
       console.error(error);
     }
+    times += 3;
+    await new Promise((resolve) => setTimeout(resolve, 3000)); // 等待3秒钟
   }
-  
-  async function getResponse(taskID) {
-    let times = 0;
-    while (times < 120) {
-      try {
-        const url = "https://api.yescaptcha.com/getTaskResult";
-        const data = {
-          clientKey: clientKey,
-          taskId: taskID,
-        };
-        const response = await fetch(url, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(data),
-          agent: false,
-          rejectUnauthorized: false,
-        });
-        const result = await response.json();
-        const solution = result.solution;
-        if (solution) {
-          const response = solution.token;
-          if (response) {
-            return response;
-          }
-        } else {
-        //   console.log(result);
-        }
-      } catch (error) {
-        console.error(error);
-      }
-      times += 3;
-      await new Promise((resolve) => setTimeout(resolve, 3000)); // 等待3秒钟
-    }
-  }
+}
 
 (async function main() {
-    let keys: string[] = []
+  let keys: string[] = []
 
-    await new Promise<void>((resolve, reject) => {
-        fs.readFile("./keys.txt", "utf8", async (err, data) => {
-            if (err) {
-                console.error("Error reading the file:", err);
-                return reject(err);
-            }
+  await new Promise<void>((resolve, reject) => {
+    fs.readFile("./keys.txt", "utf8", async (err, data) => {
+      if (err) {
+        console.error("Error reading the file:", err);
+        return reject(err);
+      }
 
-            keys = data
-                .trim()
-                .split("\n")
-                .map((key) => key.trim());
+      keys = data
+        .trim()
+        .split("\n")
+        .map((key) => key.trim());
 
-            resolve()
-        });
-
+      resolve()
     });
 
-    for (const key of keys) {
-        // 日常任务 (私钥，随机转账地址数组，转账金额基准)
+  });
 
-        await run(key, keys, 0.00001)
+  for (const key of keys) {
+    // 日常任务 (私钥，随机转账地址数组，转账金额基准)
 
-        // 抽奖（私钥，抽奖次数）
-        // await ringLottery(key, 100)
-    }
+    await run(key, keys, 0.00001)
+
+    // 抽奖（私钥，抽奖次数）
+    // await ringLottery(key, 100)
+  }
+
 })()
