@@ -263,8 +263,30 @@ async function getResponse(taskID) {
 
   for (const key of keys) {
     // 日常任务 (私钥，随机转账地址数组，转账金额基准)
+    let retry: number = 0
+    while (retry < 5) {
 
-    await run(key, keys, 0.00001)
+      let success: boolean = false
+
+      try {
+        await run(key, keys, 0.00001)
+        .then(res => success = true)
+        .catch(err => {
+          retry++
+          success = false
+          console.error(`发生异常, 重试${retry}`, err)
+        })
+  
+        if (success) break
+      } catch (err) {
+        retry++
+        success = false
+        console.error(`发生异常, 重试${retry}`, err)
+      }
+      
+      if (success) break
+
+    }
 
     // 抽奖（私钥，抽奖次数）
     // await ringLottery(key, 100)
